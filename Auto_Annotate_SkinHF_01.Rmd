@@ -24,7 +24,7 @@ for (file in r_files) {
   source(file)
 }
 
-dir.create(paste0(output_directory_base, "/", project_name))
+dir.create(paste0(output_directory_base, project_name))
 
 options(future.globals.maxSize = nThreads * 1000 * 1024^2)
 

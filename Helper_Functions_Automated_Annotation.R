@@ -16,24 +16,88 @@ load_libraries <- function(libraries) {
 setup_python_environment <- function() {
   library(reticulate)
   
-  env_name <- "renv/python/virtualenvs/renv-python-3.11.9"
-  required_packages <- c("numpy==1.24.3", "scipy==1.10.1", "magic-impute==3.0.0", "leidenalg", "igraph")
+  env_name <- "./renv/python/aLSI_requirement_venv"
   
-  # Check if the Python environment exists
-  if (!virtualenv_exists(env_name)) {
-    stop("Python virtual environment not found. Please ensure renv.lock is configured correctly and run renv::restore().")
+  cat("Installing Python 3.12 compatible packages...\n")
+  
+  # Install main packages with Python 3.12 compatible versions
+  conda_packages <- c(
+    "numpy>=1.24,<2.0",      # Compatible with magic-impute but works with Python 3.12
+    "scipy>=1.11",           # Python 3.12 compatible scipy
+    "pandas>=2.0", 
+    "matplotlib>=3.7",
+    "scikit-learn>=1.3",
+    "leidenalg>=0.10",
+    "igraph"
+  )
+  
+  conda_install(env_name, packages = conda_packages, forge = TRUE)
+  
+  # Install magic-impute and other pip packages
+  pip_packages <- c(
+    "magic-impute==3.0.0",
+    "graphtools>=1.5",
+    "scprep>=1.2", 
+    "tasklogger>=1.2",
+    "PyGSP>=0.5"
+  )
+  
+  cat("Installing pip packages...\n")
+  py_install(pip_packages, envname = env_name, pip = TRUE)
+  
+  # Declare requirements
+  py_require("numpy>=1.24,<2.0")
+  py_require("scipy>=1.11")
+  py_require("leidenalg>=0.10")
+  py_require("igraph")
+  py_require("magic-impute==3.0.0")
+  
+  # Test imports
+  modules_to_import <- c('numpy', 'scipy', 'magic', 'leidenalg', 'igraph')
+  imported_modules <- list()
+  
+  for (module in modules_to_import) {
+    tryCatch({
+      imported_modules[[module]] <- import(module)
+      if (module == "numpy") {
+        numpy_version <- imported_modules[[module]]$`__version__`
+        cat(sprintf("✓ Successfully imported %s (version: %s)\n", module, numpy_version))
+      } else {
+        cat(sprintf("✓ Successfully imported %s\n", module))
+      }
+    }, error = function(e) {
+      cat(sprintf("✗ Failed to import %s: %s\n", module, e$message))
+    })
   }
   
-  # Activate the environment
-  use_virtualenv(env_name, required = TRUE)
+  return(imported_modules)
+}
+
+
+setup_python_environment_redundant <- function() {
+  library(reticulate)
+  required_packages <- c("numpy", "scipy", "leidenalg", "igraph")
+  py_require(required_packages)
+  env_name = "renv/python/aLSI_requirement_venv"
+
+  # Check if the Python environment exists
+  if (!condaenv_exists(env_name)) {
+    message("Setting up new python environment")
+    conda_create(env_name, packages = required_packages)
+    use_condaenv(env_name)
+    py_install("magic-impute", envname = env_name, pip = TRUE)
+    }
+  
+  # Otherwise activate the environment
+  use_condaenv(env_name)
+  
   
   # Check which packages are installed
-  installed_packages <- py_list_packages()
   missing_packages <- required_packages[!sapply(strsplit(required_packages, "=="), function(x) x[1]) %in% installed_packages$package]
   
   if (length(missing_packages) > 0) {
     cat("Some required packages are missing. Installing them now...\n")
-    py_install(missing_packages, pip = TRUE)
+    conda_install(packages = missing_packages)
   } else {
     cat("All required packages are already installed.\n")
   }
@@ -142,9 +206,7 @@ read_all_mtx_and_create_seurat <- function(directory) {
 
 
 Process_Seurat <- function(obj) {
-  obj <- NormalizeData(obj)
-  obj <- FindVariableFeatures(obj, selection.method = "vst", nfeatures = 2000)
-  obj <- ScaleData(obj)
+  obj <- SCTransform(obj, vars.to.regress = "percent.mt", verbose = FALSE)
   obj <- RunPCA(obj, verbose = FALSE)  # Set verbose to FALSE to reduce console output
   obj <- FindNeighbors(obj, dims = 1:20)
   obj <- FindClusters(obj, verbose = FALSE)  # Set verbose to FALSE to reduce console output
@@ -210,13 +272,14 @@ Process_Doublet_Removal <- function(seurat_obj, seurat_names) {
   homotypic.prop <- modelHomotypic(annotations)
   nExp_poi <- round(expected_doublet*nrow(seurat_obj@meta.data))
   nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
-  
-  print(pK)
-  print(nExp_poi)
          
-  seurat_obj <- doubletFinder_v3(seurat_obj, PCs = 1:20, pN = 0.25, pK = pK, nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = FALSE)
-  
+  seurat_obj <- doubletFinder_v3(seurat_obj, PCs = 1:20, pN = 0.25, pK = pK, nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = TRUE)
   seurat_obj@meta.data$Singlet <- seurat_obj@meta.data[[8]] == "Singlet"
+  
+  dim_obj <- DimPlot(seurat_obj, group.by = "Singlet")
+  output_filename <- paste0(output_directory, "Clustering_01/DoubletFinderUMAP_", seurat_names, ".png")
+  ggsave(filename = output_filename, plot = dim_obj, width = 8, height = 6, bg = 'white')
+  
   seurat_obj <- subset(x = seurat_obj, cells = WhichCells(seurat_obj, expression = Singlet == 'TRUE'))
  
   max_row <- bcmvn %>%
@@ -227,7 +290,7 @@ Process_Doublet_Removal <- function(seurat_obj, seurat_names) {
   bcmvn$pK <- as.numeric(as.character(bcmvn$pK))
   x_at_max <- as.numeric(as.character(max_row$pK))
 
-# Create the plot
+# Create quality bcmvn plot
   
   range_x <- range(bcmvn$pK)
   positions <- seq(range_x[1], range_x[2], length.out = 6)
@@ -315,7 +378,7 @@ paramSweep_v3_alt <- function (seu, PCs = 1:10, sct = FALSE, num.cores = 1)
 runDecontX <- function(seurat_obj, seed=1){
   counts <- GetAssayData(object = seurat_obj, slot = "counts")
   clusters <- Idents(seurat_obj) %>% as.numeric()
-
+  
   # Run on only expressed genes
   x <- counts[rowSums(counts)>0,]
   message(sprintf("Running decontX on %s cells with %s non-zero genes...", dim(x)[2], dim(x)[1]))
@@ -329,7 +392,12 @@ runDecontX <- function(seurat_obj, seed=1){
   newCounts <- rbind(newCounts, counts[rowSums(counts)==0,])[rownames(counts),]
   seurat_obj[["RNA"]]@counts <- as(round(newCounts), "sparseMatrix")
   seurat_obj$estConp <- decon$contamination # Estimated 'contamination proportion, 0 to 1'
-
+  
+  
+  decontX_plot <- plotDecontXContamination(decon, size = 0.5)
+  output_filename <- paste0(output_directory, "Clustering_01/DecontXPlot_", seurat_names, ".png")
+  ggsave(filename = output_filename, plot = decontX_plot, width = 8, height = 6, bg = 'white')
+  
   return(seurat_obj)
 }
 

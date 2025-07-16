@@ -30,21 +30,21 @@ libraries <- c(
 #########################
 
 #Project and dataset name
-project_name = "Greenleaf23_aLSI"
-dataset = "Greenleaf23"
+project_name = "Mallia_25"
+dataset = "Mallia_25"
 
 #The directory containing all raw files, currently only works for datasets comprising barcodes/features/matrix files
 
-directory_mtx = "D:/scRNA_datasets/Greenleaf_scRNA_dataset/"
+directory_mtx = "/mnt/d/scRNA_datasets/Mallia_dataset/"
 
 #The directory in which all output will be generated
 
-output_directory_base = "D:/scRNA_output/"
+output_directory_base = "/mnt/d/scRNA_output/"
 output_directory = paste0("D:/scRNA_output/", project_name, "/")
 
 #The directory containing the R scripts and sample_cmap.rds file
 
-script_directory = "C:/Users/UVict/Desktop/Higgins_Lab/Automated_Annotation/"
+script_directory = "~home/R_aLSI_scRNA_annotation"
 
 #Only use if your know how many cores your CPU has, otherwise comment out.
 #Depending on OS you might want to just set nThreads = 1 to avoid potential errors from parallelization
@@ -67,15 +67,15 @@ Mito_Cutoff = 30
 
 #Sets initial minimal RNA features required per cell whilst loading dataset
 
-minFeatures = 200
+minFeatures = 100
 
 #Sets the minimal mRNA strand count required from each cell
 
-minCounts = 500
+minCounts = 200
 
 #LSI parameters for initial clustering purposes, these do not require changing
 
-nVarGenes <- 4000
+nVarGenes <- 3000
 nPCs <- 1:25
 resolution <- c(0.2, 0.4, 0.8)
 recluster_resolution <- c(0.1, 0.3, 0.6)
